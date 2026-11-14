@@ -1,0 +1,118 @@
+---
+title: "Construire un Design System de Zéro"
+date: "2024-11-05"
+description: "Un guide pratique pour créer un design system évolutif avec TypeScript et des tokens de design — des premiers principes à la production."
+tags: ["design-systems", "typescript", "css", "architecture"]
+category: "Ingénierie"
+draft: false
+---
+
+## Pourquoi les design systems sont importants
+
+Un design system n'est pas une bibliothèque de composants UI. C'est un langage partagé entre designers et ingénieurs qui réduit la fatigue décisionnelle, élimine les incohérences et accélère la livraison.
+
+La différence entre une bibliothèque de composants et un design system, c'est l'intentionnalité. Une bibliothèque de composants est une collection d'éléments UI. Un design system est un *contrat* : il encode des décisions sur l'espacement, la couleur, le mouvement et les interactions — et les applique dans toute la codebase.
+
+## Commencer par les tokens
+
+Les tokens de design sont la plus petite unité d'une décision de design. Ce sont des valeurs nommées qui représentent des propriétés visuelles.
+
+```typescript
+// tokens.ts
+export const tokens = {
+  color: {
+    brand: {
+      primary: '#3659A8',
+      primaryHover: '#2947a3',
+    },
+    neutral: {
+      0: '#FFFFFF',
+      50: '#F8F8F6',
+      100: '#E5E5E2',
+      900: '#171717',
+    },
+  },
+  space: {
+    1: '4px',
+    2: '8px',
+    3: '12px',
+    4: '16px',
+    6: '24px',
+    8: '32px',
+    12: '48px',
+  },
+  font: {
+    sans: 'Geist, system-ui, sans-serif',
+    serif: 'Lora, Georgia, serif',
+    mono: 'JetBrains Mono, monospace',
+  },
+  radius: {
+    sm: '2px',
+    md: '4px',
+    lg: '8px',
+  },
+} as const
+```
+
+L'assertion `as const` est critique. Elle transforme l'objet en un type profondément readonly, ce qui permet à TypeScript d'inférer des types littéraux pour chaque valeur.
+
+## Les variables CSS comme pont
+
+Les tokens définis en TypeScript doivent être accessibles depuis CSS. Les propriétés personnalisées CSS (variables) constituent le pont le plus robuste.
+
+```typescript
+// generateCSSVars.ts
+function flattenTokens(obj: object, prefix = ''): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(obj)) {
+    const varName = prefix ? `${prefix}-${key}` : key
+    if (typeof value === 'object' && value !== null) {
+      Object.assign(result, flattenTokens(value, varName))
+    } else {
+      result[varName] = String(value)
+    }
+  }
+  return result
+}
+
+export function generateCSS(tokens: object): string {
+  const vars = flattenTokens(tokens)
+  const declarations = Object.entries(vars)
+    .map(([k, v]) => `  --${k}: ${v};`)
+    .join('\n')
+  return `:root {\n${declarations}\n}`
+}
+```
+
+## Le contrat du composant
+
+Chaque composant d'un design system doit exposer une API minimale et stable. Il doit accepter des tokens de design — pas des valeurs CSS brutes — comme props.
+
+```typescript
+interface ButtonProps {
+  variant: 'primary' | 'secondary' | 'ghost'
+  size: 'sm' | 'md' | 'lg'
+  disabled?: boolean
+  children: React.ReactNode
+  onClick?: () => void
+}
+```
+
+Cette API n'expose pas `backgroundColor`, `padding` ni `fontSize`. Ce sont des détails d'implémentation. Le consommateur choisit *l'intention* (variant, taille) et le composant décide de la *présentation*.
+
+## Versionnement et documentation
+
+Un design system sans documentation est une bibliothèque de composants avec des étapes supplémentaires. Chaque token, chaque composant, chaque pattern doit être documenté avec :
+
+- **Objectif** : quel problème cela résout-il ?
+- **Usage** : quand l'utiliser et quand ne pas l'utiliser.
+- **Props** : toutes les entrées acceptées avec leurs types et valeurs par défaut.
+- **Exemples** : rendu visuel pour chaque variante principale.
+
+Envisagez Storybook pour le développement et la documentation de composants isolés. Envisagez Chromatic pour les tests de régression visuelle.
+
+## Conclusion
+
+Un design system est un produit. Il a des utilisateurs (votre équipe), des parties prenantes (les responsables design et ingénierie), et une feuille de route. Traitez-le comme tel : versionnez-le, documentez-le, testez-le et maintenez-le.
+
+Commencez petit. D'abord les tokens, puis les primitives, puis les patterns. Résistez à la tentation de tout construire d'un coup. Un petit système bien maintenu vaut mieux qu'un système complet mais abandonné.

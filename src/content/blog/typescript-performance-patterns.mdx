@@ -1,0 +1,132 @@
+---
+title: "Patterns de Performance TypeScript que j'Utilise Chaque Jour"
+date: "2024-10-18"
+description: "Des patterns pratiques pour écrire du TypeScript à la fois type-safe et performant à l'exécution — en se concentrant sur ce qui compte vraiment en production."
+tags: ["typescript", "performance", "patterns", "javascript"]
+category: "TypeScript"
+draft: false
+---
+
+## Le bon modèle mental
+
+TypeScript compile et disparaît. À l'exécution, c'est du JavaScript qui tourne. Cela signifie que la performance TypeScript concerne en partie la phase de vérification de types (au build) et en partie le JavaScript résultant (à l'exécution).
+
+Les deux comptent, mais dans des contextes différents. Cet article couvre les deux.
+
+## Exécution : éviter les créations d'objets inutiles
+
+Le problème de performance le plus courant que je rencontre dans les codebases TypeScript est la création d'objets intermédiaires inutiles.
+
+```typescript
+// Lent : crée un nouveau tableau à chaque appel
+function getActiveUserIds(users: User[]): string[] {
+  return users
+    .filter(u => u.active)
+    .map(u => u.id)
+}
+
+// Plus rapide : une seule passe avec reduce
+function getActiveUserIds(users: User[]): string[] {
+  return users.reduce<string[]>((acc, u) => {
+    if (u.active) acc.push(u.id)
+    return acc
+  }, [])
+}
+```
+
+Le `filter + map` chaîné crée deux tableaux. La version `reduce` n'en crée qu'un. Pour de petits tableaux, la différence est négligeable ; pour de grands jeux de données traités fréquemment, elle s'accumule.
+
+## Build : préférer interface à type pour les objets
+
+Quand on définit des formes d'objets, `interface` est marginalement plus rapide à vérifier par le compilateur que `type` pour les grandes codebases.
+
+```typescript
+// Préférer ceci pour les formes d'objets
+interface UserProfile {
+  id: string
+  name: string
+  email: string
+  createdAt: Date
+}
+
+// Utiliser type pour les unions, intersections, types mappés
+type UserId = string
+type Status = 'active' | 'inactive' | 'pending'
+type PartialUser = Partial<UserProfile>
+```
+
+La différence pratique est faible, mais constante. La raison plus importante : les déclarations `interface` sont fusionnées par TypeScript, ce qui est utile pour l'augmentation de module.
+
+## Utiliser `satisfies` pour une inférence plus stricte
+
+L'opérateur `satisfies` (TypeScript 4.9+) valide qu'une valeur est conforme à un type tout en préservant le type littéral de la valeur.
+
+```typescript
+const palette = {
+  red: [255, 0, 0],
+  green: '#00ff00',
+  blue: [0, 0, 255],
+} satisfies Record<string, string | number[]>
+
+// palette.red est inféré comme number[], pas string | number[]
+// palette.green est inféré comme string, pas string | number[]
+
+palette.red.map(c => c * 0.5) // OK — TypeScript sait que c'est number[]
+palette.green.toUpperCase()    // OK — TypeScript sait que c'est string
+```
+
+Sans `satisfies`, une annotation de type élargirait les types et perdrait la spécificité. Sans aucune annotation, le type est correct mais non validé.
+
+## Unions discriminées plutôt qu'héritage
+
+Les unions discriminées produisent un rétrécissement de types plus rapide que les hiérarchies de classes et les extensions d'interface.
+
+```typescript
+// Bien : union discriminée
+type ApiResponse<T> =
+  | { status: 'success'; data: T; requestId: string }
+  | { status: 'error'; error: string; code: number }
+  | { status: 'loading' }
+
+function handleResponse<T>(response: ApiResponse<T>) {
+  switch (response.status) {
+    case 'success':
+      return response.data   // TypeScript sait que data existe
+    case 'error':
+      return response.error  // TypeScript sait que error existe
+    case 'loading':
+      return null
+  }
+}
+```
+
+Le `switch` sur le discriminant (`status`) rétrécit complètement le type. Aucun cast requis. Aucune vérification `instanceof` à l'exécution.
+
+## Évaluation paresseuse avec les générateurs
+
+Pour les grandes transformations de données, les générateurs évitent de matérialiser l'intégralité du jeu de données intermédiaire.
+
+```typescript
+function* filterMap<T, U>(
+  iterable: Iterable<T>,
+  predicate: (item: T) => boolean,
+  transform: (item: T) => U,
+): Generator<U> {
+  for (const item of iterable) {
+    if (predicate(item)) {
+      yield transform(item)
+    }
+  }
+}
+
+// Aucun tableau intermédiaire créé
+const activeUserIds = Array.from(
+  filterMap(users, u => u.active, u => u.id)
+)
+```
+
+## Conclusion
+
+La performance TypeScript ne concerne pas principalement des astuces ingénieuses. Il s'agit de comprendre où les coûts s'accumulent : allocation inutile, types trop génériques, mauvais rétrécissement de types. Corrigez cela, et le reste tend à suivre.
+
+La meilleure amélioration de performance est généralement la clarté. Les types clairs sont des types rapides. Les types étroits sont des types rapides. L'intention explicite est à la fois une bonne documentation et une vérification de types efficace.
