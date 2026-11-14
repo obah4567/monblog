@@ -33,8 +33,9 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_BASE_URL: ${{ github.event.repository.name != github.event.repository.owner.login && format('/{0}/', github.event.repository.name) || '/' }}
-
+          # VITE_BASE_URL: ${{ github.event.repository.name != github.event.repository.owner.login && format('/{0}/', github.event.repository.name) || '/' }}
+          VITE_BASE_URL: /monblog/
+          
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
